@@ -18,6 +18,8 @@ const filterEVsIVs = (obj: any) => {
 
 // Stat calculation helpers
 function calcHP(base: number, level: number, iv: number, ev: number) {
+    // Special case: Shedinja always has 1 HP
+    if (base === 1) return 1;
     return Math.floor(((2 * base + iv + Math.floor(ev / 4)) * level) / 100) + level + 10;
 }
 function calcStat(base: number, level: number, iv: number, ev: number, nature: number) {
@@ -142,17 +144,22 @@ const renderStatsWithCalc = (pokemon: any) => {
     };
 
     // Stat min/max calculation
-    // Min: IV=31, EV=0, nature=0.9 (hindering)
-    // Max: IV=31, EV=252, nature=1.1 (beneficial)
+    // Min: IV=31, EV=0, nature=0.9 (hindering, non-HP except Speed)
+    // Max: IV=31, EV=252, nature=1.1 (beneficial, non-HP)
+    // For Speed, both min and max use nature=1.1 (Speed-buffing nature)
     // HP: nature is always 1.0
     const statRows = (['hp', 'atk', 'def', 'spa', 'spd', 'spe'] as const).map(stat => {
         let min, max;
         if (stat === 'hp') {
             min = calcHP(baseStats.hp, level, 31, 0);
             max = calcHP(baseStats.hp, level, 31, 252);
+        } else if (stat === 'spe') {
+            // Always assume speed-buffing nature for min and max
+            min = calcStat(baseStats.spe, level, 31, 0, 1.1);
+            max = calcStat(baseStats.spe, level, 31, 252, 1.1);
         } else {
             min = calcStat(baseStats[stat], level, 31, 0, 0.9);
-            max = calcStat(baseStats[stat], level, 31, 252, 1.1);
+            max = calcStat(baseStats[stat], level, 31, 252, 1.0);
         }
         const likely = getRoleStatHints(pokemon, stat);
         return { stat, min, max, likely };
@@ -255,7 +262,7 @@ const renderStatsWithCalc = (pokemon: any) => {
                 </tbody>
             </table>
             <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
-                Min/Max: possible stat at Lv {level} (Min: IV=31, EV=0, hindering nature; Max: IV=31, EV=252, beneficial nature).
+                Min/Max: possible stat at <b>Lv {level}</b> (Min: IV=0, EV=0, hindering nature; Max: IV=31, EV=252, beneficial nature. HP ignores nature).
                 <span style={{ marginLeft: 8, color: '#388e3c' }}>↑</span> = Stat is likely maximized for this Pokémon's role.
             </div>
         </div>
@@ -393,6 +400,7 @@ const PokemonList: React.FC<PokemonListProps> = ({ pokemons }) => {
 
     return (
         <div className="pokemon-list">
+            {/* Remove global level selector */}
             {pokemons.length > 0 ? (
                 <>
                     {pokemons.map((pokemon) => {
@@ -432,82 +440,128 @@ const PokemonList: React.FC<PokemonListProps> = ({ pokemons }) => {
                         );
                     })}
                     {selected && (
-                        <div
-                            style={{
-                                position: 'fixed',
-                                top: 0,
-                                left: 0,
-                                width: '100vw',
-                                height: '100vh',
-                                background: 'rgba(0,0,0,0.4)',
-                                zIndex: 1000,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center'
-                            }}
-                            onClick={() => setSelected(null)}
-                        >
-                            <div
-                                style={{
-                                    background: 'white',
-                                    borderRadius: 8,
-                                    padding: 24,
-                                    minWidth: 320,
-                                    maxWidth: 600,
-                                    maxHeight: '80vh',
-                                    overflowY: 'auto',
-                                    boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
-                                    position: 'relative'
-                                }}
-                                onClick={e => e.stopPropagation()}
-                            >
-                                <button
-                                    style={{
-                                        position: 'absolute',
-                                        top: 8,
-                                        right: 12,
-                                        background: 'transparent',
-                                        border: 'none',
-                                        fontSize: 24,
-                                        cursor: 'pointer'
-                                    }}
-                                    onClick={() => setSelected(null)}
-                                    aria-label="Close"
-                                >
-                                    &times;
-                                </button>
-                                {getImageSrc(selected) && (
-                                    <img
-                                        src={getImageSrc(selected)}
-                                        alt={selected.name}
-                                        style={{
-                                            width: 120,
-                                            height: 120,
-                                            objectFit: 'contain',
-                                            marginBottom: 16,
-                                            display: 'block',
-                                            marginLeft: 'auto',
-                                            marginRight: 'auto'
-                                        }}
-                                    />
-                                )}
-                                <div className="pokemon-name" style={{ fontSize: 24, marginBottom: 12, textAlign: 'center' }}>
-                                    {selected.name}
-                                </div>
-                                {Object.entries(selected)
-                                    .filter(([key]) => key !== 'id' && key !== 'name')
-                                    .map(([key, value]) => (
-                                        <div key={key} style={{ marginBottom: 10 }}>
-                                            <strong>{capitalize(key)}:</strong> {renderValue(value, key, selected)}
-                                        </div>
-                                    ))}
-                            </div>
-                        </div>
+                        <PokemonDetailCard
+                            pokemon={selected}
+                            onClose={() => setSelected(null)}
+                        />
                     )}
                 </>
             ) : (
                 <p>No Pokémon found.</p>
             )}
+        </div>
+    );
+};
+
+// Card component with per-Pokémon level adjustment
+const PokemonDetailCard: React.FC<{ pokemon: any; onClose: () => void }> = ({ pokemon, onClose }) => {
+    const assumedLevel = pokemon.level || 100;
+    const [level, setLevel] = useState<number>(assumedLevel);
+
+    return (
+        <div
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100vw',
+                height: '100vh',
+                background: 'rgba(0,0,0,0.4)',
+                zIndex: 1000,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+            }}
+            onClick={onClose}
+        >
+            <div
+                style={{
+                    background: 'white',
+                    borderRadius: 8,
+                    padding: 24,
+                    minWidth: 320,
+                    maxWidth: 600,
+                    maxHeight: '80vh',
+                    overflowY: 'auto',
+                    boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+                    position: 'relative'
+                }}
+                onClick={e => e.stopPropagation()}
+            >
+                <button
+                    style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 12,
+                        background: 'transparent',
+                        border: 'none',
+                        fontSize: 24,
+                        cursor: 'pointer'
+                    }}
+                    onClick={onClose}
+                    aria-label="Close"
+                >
+                    &times;
+                </button>
+                {getImageSrc(pokemon) && (
+                    <img
+                        src={getImageSrc(pokemon)}
+                        alt={pokemon.name}
+                        style={{
+                            width: 120,
+                            height: 120,
+                            objectFit: 'contain',
+                            marginBottom: 16,
+                            display: 'block',
+                            marginLeft: 'auto',
+                            marginRight: 'auto'
+                        }}
+                    />
+                )}
+                <div className="pokemon-name" style={{ fontSize: 24, marginBottom: 12, textAlign: 'center' }}>
+                    {pokemon.name}
+                </div>
+                {/* Move level selector here, just before the stat block */}
+                <div style={{ marginBottom: 8, textAlign: 'center' }}>
+                    <label htmlFor="level-input-detail" style={{ marginRight: 8, fontWeight: 500 }}>
+                        Level:
+                    </label>
+                    <input
+                        id="level-input-detail"
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={level}
+                        onChange={e => setLevel(Number(e.target.value))}
+                        style={{
+                            width: 60,
+                            padding: '4px 8px',
+                            borderRadius: 4,
+                            border: '1px solid #ccc',
+                            fontSize: 15,
+                            textAlign: 'center'
+                        }}
+                    />
+                </div>
+                {/* Render stat block (and pass level) */}
+                {Object.entries(pokemon)
+                    .filter(([key]) => key !== 'id' && key !== 'name')
+                    .map(([key, value]) =>
+                        key === 'stats' ? (
+                            <div key={key} style={{ marginBottom: 10 }}>
+                                <strong>{capitalize(key)}:</strong> {renderValue(value, key, { ...pokemon, level })}
+                            </div>
+                        ) : null
+                    )}
+                {/* Render other fields except stats */}
+                {Object.entries(pokemon)
+                    .filter(([key]) => key !== 'id' && key !== 'name' && key !== 'stats')
+                    .map(([key, value]) => (
+                        <div key={key} style={{ marginBottom: 10 }}>
+                            <strong>{capitalize(key)}:</strong> {renderValue(value, key, { ...pokemon, level })}
+                        </div>
+                    ))}
+            </div>
         </div>
     );
 };
