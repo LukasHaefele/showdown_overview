@@ -20,10 +20,17 @@ const filterEVsIVs = (obj: any) => {
 function calcHP(base: number, level: number, iv: number, ev: number) {
     // Special case: Shedinja always has 1 HP
     if (base === 1) return 1;
-    return Math.floor(((2 * base + iv + Math.floor(ev / 4)) * level) / 100) + level + 10;
+    // Correct formula: floor(floor((2 * base + IV + floor(EV / 4)) * level / 100) + level + 10)
+    return Math.floor(
+        Math.floor((2 * base + iv + Math.floor(ev / 4)) * level / 100) + level + 10
+    );
 }
 function calcStat(base: number, level: number, iv: number, ev: number, nature: number) {
-    return Math.floor((Math.floor(((2 * base + iv + Math.floor(ev / 4)) * level) / 100) + 5) * nature);
+    // Correct formula: floor((floor((2 * base + IV + floor(EV / 4)) * level / 100) + 5) * nature)
+    // The inner floor is for the division, the outer floor is for the nature multiplication
+    return Math.floor(
+        (Math.floor((2 * base + iv + Math.floor(ev / 4)) * level / 100) + 5) * nature
+    );
 }
 
 // Get base stats from showdown-dataset.json
@@ -85,7 +92,9 @@ const getRoleStatHints = (pokemon: any, stat: string) => {
 
 const renderStatsWithCalc = (pokemon: any) => {
     const baseStats = getBaseStats(pokemon);
-    const level = pokemon.level || 100;
+    // Clamp level between 1 and 100
+    let level = pokemon.level || 100;
+    level = Math.max(1, Math.min(100, level));
     if (
         !baseStats ||
         [baseStats.hp, baseStats.atk, baseStats.def, baseStats.spa, baseStats.spd, baseStats.spe].some(
@@ -456,8 +465,9 @@ const PokemonList: React.FC<PokemonListProps> = ({ pokemons }) => {
 // Card component with per-Pokémon level adjustment
 const PokemonDetailCard: React.FC<{ pokemon: any; onClose: () => void }> = ({ pokemon, onClose }) => {
     const assumedLevel = pokemon.level || 100;
-    const [level, setLevel] = useState<number>(assumedLevel);
-
+    const [level, setLevelRaw] = useState<number>(assumedLevel);
+    // Clamp level between 1 and 100
+    const setLevel = (val: number) => setLevelRaw(Math.max(1, Math.min(100, val)));
     return (
         <div
             style={{
